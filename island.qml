@@ -3,6 +3,7 @@
 //
 // Hidden until the cursor touches the top edge of the screen.
 // Left click to pin open · right click to quit.
+// With more than one media source, click the dots to switch between them.
 import QtQml.Models
 import QtQuick
 import QtQuick.Effects
@@ -12,6 +13,7 @@ import org.kde.kirigami as Kirigami
 import org.kde.ksysguard.sensors as Sensors
 import org.kde.layershell as LayerShell
 import org.kde.plasma.private.mpris as Mpris
+import org.kde.plasma.workspace.dbus as DBus
 
 Window {
     id: root
@@ -64,34 +66,136 @@ Window {
     }
 
     property var player: null
+    property var players: []          // what the dots show, in a stable order
+    property var chosenPlayer: null   // set by clicking a dot, wins over the ranking
+    property var hiddenPlayers: ({})  // HiddenPlayer objects by D-Bus name
 
     function isBrowser(candidate) {
         return /brave|chrom|firefox|edge|vivaldi|opera|browser/i.test((candidate.desktopEntry || "") + " " + (candidate.identity || ""));
+    }
+
+    function sameTrack(a, b) {
+        const left = a.toLowerCase(), right = b.toLowerCase();
+        return left.includes(right) || right.includes(left);
     }
 
     // Plasma's automatic pick can stay on a browser, where a hover preview or a
     // background tab counts as playing, so rank the players here instead: playing
     // beats paused, and a music app beats a browser. Ties keep the current player.
     function pickPlayer() {
-        const players = [];
+        const found = [];
         for (let i = 0; i < playerRows.count; i++) {
             const row = playerRows.objectAt(i);
-            if (row && row.container && !row.multiplexer && row.trackName !== "" && players.indexOf(row.container) < 0)
-                players.push(row.container);
+            if (row && row.container && !row.multiplexer && row.trackName !== "" && found.indexOf(row.container) < 0)
+                found.push(row.container);
         }
+        // A hidden player showing the same track as its browser's integration
+        // player is the same tab seen twice.
+        const integrated = found.filter(candidate => candidate.kdePid > 0);
+        for (const hidden of Object.values(hiddenPlayers))
+            if (hidden.track !== "" && !integrated.some(p => p.kdePid === hidden.pid && sameTrack(p.track, hidden.track)))
+                found.push(hidden);
+
+        // Existing players keep their place so a dot doesn't move under the cursor.
+        const kept = players.filter(candidate => found.indexOf(candidate) >= 0);
+        const ordered = kept.concat(found.filter(candidate => kept.indexOf(candidate) < 0));
+        if (ordered.length !== players.length || ordered.some((candidate, i) => candidate !== players[i]))
+            players = ordered;
+
+        if (ordered.indexOf(chosenPlayer) < 0)
+            chosenPlayer = null;
         const rank = candidate => {
             const status = candidate.playbackStatus;
             const state = status === Mpris.PlaybackStatus.Playing ? 2 : status === Mpris.PlaybackStatus.Paused ? 1 : 0;
             return state * 2 + (isBrowser(candidate) ? 0 : 1);
         };
-        let next = players.indexOf(player) >= 0 ? player : null;
-        for (const candidate of players)
-            if (!next || rank(candidate) > rank(next))
-                next = candidate;
+        let next = chosenPlayer || (ordered.indexOf(player) >= 0 ? player : null);
+        if (!chosenPlayer)
+            for (const candidate of ordered)
+                if (!next || rank(candidate) > rank(next))
+                    next = candidate;
         if (next !== player) {
             player = next;
             console.log("Following player:", next ? next.identity : "none");
         }
+    }
+
+    function choosePlayer(candidate) {
+        chosenPlayer = candidate;
+        pickPlayer();
+    }
+
+    function sendCommand(member) {
+        if (player.send)
+            player.send(member, "", []);
+        else
+            player[member]();
+    }
+
+    function seekTo(us) {
+        if (player.seekBy)
+            player.seekBy(us - player.position);
+        else
+            player.position = us;
+    }
+
+    function busCall(service, path, iface, member, signature, args, done) {
+        DBus.SessionBus.asyncCall({ service: service, path: path, iface: iface, member: member, signature: signature, arguments: args },
+                                  reply => { if (done) done(reply.value); },
+                                  error => console.debug(member, "failed:", error.message));
+    }
+    function busValue(value) {
+        return value !== null && typeof value === "object" && value.value !== undefined ? value.value : value;
+    }
+
+    function dropHiddenPlayer(name) {
+        const gone = hiddenPlayers[name];
+        delete hiddenPlayers[name];
+        pickPlayer();
+        gone.destroy();
+    }
+
+    // Plasma's model hides a browser's own player whenever its integration player
+    // exists, yet the two can be different tabs, so look for those over D-Bus.
+    function refreshHiddenPlayers() {
+        const browserPids = [];
+        for (let i = 0; i < playerRows.count; i++) {
+            const row = playerRows.objectAt(i);
+            if (row && row.container && row.container.kdePid > 0)
+                browserPids.push(row.container.kdePid);
+        }
+        for (const name of Object.keys(hiddenPlayers))
+            if (browserPids.indexOf(hiddenPlayers[name].pid) < 0)
+                dropHiddenPlayer(name);
+        if (browserPids.length === 0)
+            return;
+
+        const bus = ["org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus"];
+        busCall(...bus, "ListNames", "", [], names => {
+            const media = names.filter(name => name.startsWith("org.mpris.MediaPlayer2.") && !name.endsWith(".plasma-browser-integration"));
+            for (const name of Object.keys(hiddenPlayers))
+                if (media.indexOf(name) < 0)
+                    dropHiddenPlayer(name);
+            for (const name of media) {
+                if (hiddenPlayers[name]) {
+                    hiddenPlayers[name].refresh();
+                    continue;
+                }
+                busCall(...bus, "GetConnectionUnixProcessID", "(s)", [new DBus.string(name)], reply => {
+                    const pid = busValue(reply);
+                    if (browserPids.indexOf(pid) >= 0 && !hiddenPlayers[name])
+                        hiddenPlayers[name] = hiddenPlayerComponent.createObject(root, { service: name, pid: pid });
+                });
+            }
+        });
+    }
+    Component { id: hiddenPlayerComponent; HiddenPlayer {} }
+    Timer {
+        interval: 1000
+        repeat: true
+        running: root.bigWindow
+        triggeredOnStart: true
+        onTriggered: root.refreshHiddenPlayers()
     }
 
     readonly property bool hasMedia: !!player && (player.track || "") !== ""
@@ -168,7 +272,18 @@ Window {
         }
     }
     Timer { id: openTimer; interval: 70; onTriggered: root.expanded = true }
-    Timer { id: shrinkTimer; interval: 450; onTriggered: root.bigWindow = false }
+    Timer {
+        id: shrinkTimer
+        interval: 450
+        onTriggered: {
+            root.bigWindow = false;
+            // A choice lasts while that player is playing; otherwise go back to the ranking.
+            if (root.chosenPlayer && root.chosenPlayer.playbackStatus !== Mpris.PlaybackStatus.Playing) {
+                root.chosenPlayer = null;
+                root.pickPlayer();
+            }
+        }
+    }
     Timer { id: hoverOff; interval: 350; onTriggered: root.hovering = false }
     Timer { id: hoverOn; interval: root.revealDelay; onTriggered: root.hovering = true }
     Timer { id: peekOff; interval: root.peekSeconds * 1000; onTriggered: root.peeking = false }
@@ -307,19 +422,57 @@ Window {
                         icon: "media-skip-backward"
                         size: 34
                         enabled: root.hasMedia && root.player.canGoPrevious
-                        onClicked: root.player.Previous()
+                        onClicked: root.sendCommand("Previous")
                     }
                     ControlButton {
                         icon: root.playing ? "media-playback-pause" : "media-playback-start"
                         size: 42
                         enabled: root.hasMedia && root.player.canControl
-                        onClicked: root.player.PlayPause()
+                        onClicked: root.sendCommand("PlayPause")
                     }
                     ControlButton {
                         icon: "media-skip-forward"
                         size: 34
                         enabled: root.hasMedia && root.player.canGoNext
-                        onClicked: root.player.Next()
+                        onClicked: root.sendCommand("Next")
+                    }
+                }
+            }
+
+            // One dot per media source, in the gap above the stats.
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 76
+                visible: root.hasMedia && root.players.length > 1
+
+                Repeater {
+                    model: root.players
+
+                    Item {
+                        id: dot
+                        required property var modelData
+                        readonly property bool active: modelData === root.player
+                        width: 22
+                        height: 16
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: dot.active ? 16 : 6
+                            height: 6
+                            radius: 3
+                            color: dot.active ? root.accent : "#ffffff"
+                            opacity: dot.active || dotArea.containsMouse ? 1
+                                     : dot.modelData.playbackStatus === Mpris.PlaybackStatus.Playing ? 0.7 : 0.3
+                            Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on opacity { NumberAnimation { duration: 120 } }
+                        }
+                        MouseArea {
+                            id: dotArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.choosePlayer(dot.modelData)
+                        }
                     }
                 }
             }
@@ -359,6 +512,66 @@ Window {
     }
 
     // ---- Components ------------------------------------------------------
+
+    // Offers the parts of Plasma's player API the island uses, for a player that
+    // only exists on D-Bus. Nothing is watched while the island is closed.
+    component HiddenPlayer: QtObject {
+        id: hidden
+        readonly property string objectPath: "/org/mpris/MediaPlayer2"
+        readonly property string playerIface: "org.mpris.MediaPlayer2.Player"
+        property string service
+        property int pid
+        property string identity: "Browser"
+        property string desktopEntry
+        property int playbackStatus: Mpris.PlaybackStatus.Unknown
+        property string track
+        property string artist
+        property string artUrl
+        property real length: 0
+        property real position: 0
+        property bool canControl
+        property bool canGoPrevious
+        property bool canGoNext
+        property bool canSeek
+
+        onPlaybackStatusChanged: Qt.callLater(root.pickPlayer)
+        onTrackChanged: Qt.callLater(root.pickPlayer)
+
+        function refresh() {
+            root.busCall(service, objectPath, "org.freedesktop.DBus.Properties", "GetAll", "(s)", [new DBus.string(playerIface)], props => {
+                const metadata = root.busValue(props.Metadata) || {};
+                const status = root.busValue(props.PlaybackStatus);
+                playbackStatus = status === "Playing" ? Mpris.PlaybackStatus.Playing
+                               : status === "Paused" ? Mpris.PlaybackStatus.Paused
+                               : Mpris.PlaybackStatus.Stopped;
+                track = root.busValue(metadata["xesam:title"]) || "";
+                artist = Array.from(root.busValue(metadata["xesam:artist"]) || []).join(", ");
+                artUrl = root.busValue(metadata["mpris:artUrl"]) || "";
+                // A live stream reports an overflowed length.
+                const total = Number(root.busValue(metadata["mpris:length"])) || 0;
+                length = total > 0 && total < 1e15 ? total : 0;
+                position = Number(root.busValue(props.Position)) || 0;
+                canControl = !!root.busValue(props.CanControl);
+                canGoPrevious = !!root.busValue(props.CanGoPrevious);
+                canGoNext = !!root.busValue(props.CanGoNext);
+                canSeek = !!root.busValue(props.CanSeek);
+            });
+        }
+        function send(member, signature, args) {
+            root.busCall(service, objectPath, playerIface, member, signature, args, () => refresh());
+        }
+        function seekBy(us) { send("Seek", "(x)", [new DBus.int64(Math.round(us))]); }
+        function updatePosition() {}
+
+        Component.onCompleted: {
+            root.busCall(service, objectPath, "org.freedesktop.DBus.Properties", "GetAll", "(s)", [new DBus.string("org.mpris.MediaPlayer2")], props => {
+                identity = root.busValue(props.Identity) || identity;
+                desktopEntry = root.busValue(props.DesktopEntry) || "";
+            });
+            refresh();
+        }
+    }
+
     component AlbumArt: Item {
         id: art
         property int size: 24
@@ -470,7 +683,7 @@ Window {
                 anchors.fill: parent
                 enabled: root.hasMedia && root.player.canSeek && root.player.length > 0
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: mouse => root.player.position = root.player.length * (mouse.x / width)
+                onClicked: mouse => root.seekTo(root.player.length * (mouse.x / width))
             }
         }
         Item {

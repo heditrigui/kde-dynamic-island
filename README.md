@@ -45,6 +45,7 @@ To remove it:
 | Move the cursor to the top centre of the screen | Opens the island |
 | Move the cursor away | Hides it |
 | Left click | Pins it open or unpins it |
+| Click a dot | Switches to that media source, when more than one is open |
 | Right click | Quits until you start it again or next log in |
 | Left click the tray icon | Runs or quits it |
 | Right click the tray icon | Opens the Run, Quit and Restart menu |
@@ -65,6 +66,12 @@ Edit the `Tweakables` block at the top of `~/.local/share/dynamic-island/island.
 - Media info uses Plasma's private `org.kde.plasma.private.mpris` module, so a Plasma update could break it.
 - While hidden, the island takes clicks on a thin strip at the top centre of the screen (600 × 2 px by default).
 - The equaliser is decorative and doesn't react to the audio.
+
+### Several media sources
+
+The island picks a source by itself: playing beats paused, and a music app beats a browser. A dot you click overrides that for as long as that source keeps playing.
+
+A browser shows at most two sources, one through Plasma Browser Integration and one through its own media player, and tabs beyond those stay out of reach. A paused tab can lose its place when another tab takes over.
 
 ### Snap apps, including Spotify
 
