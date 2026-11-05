@@ -71,7 +71,22 @@ Edit the `Tweakables` block at the top of `~/.local/share/dynamic-island/island.
 
 The island picks a source by itself: playing beats paused, and a music app beats a browser. A dot you click overrides that for as long as that source keeps playing.
 
-A browser shows at most two sources, one through Plasma Browser Integration and one through its own media player, and tabs beyond those stay out of reach. A paused tab can lose its place when another tab takes over.
+Without help, a browser exposes at most two sources, and when two tabs play at once both usually point at the same tab. The extension below gives every tab its own dot.
+
+### One dot per browser tab (optional)
+
+Works in Brave, Chrome, Chromium, Edge and Vivaldi.
+
+1. Run `install.sh`, which registers the helper the extension talks to.
+2. Open `brave://extensions` (or your browser's equivalent) and turn on Developer mode.
+3. Choose **Load unpacked** and select `~/.local/share/dynamic-island/browser-extension`.
+
+The extension runs on all sites so it can find media on any page. It reads only playback state, the title and the artwork address, and sends them to the local helper, `tab_media_host.py`. Nothing leaves your computer.
+
+- Each tab also appears in Plasma's own media controls.
+- Only media that has been heard counts, so muted autoplay stays hidden, and a tab you mute drops out once it reloads.
+- Tab players can't skip tracks. When Plasma Browser Integration shows the same tab, the island uses that player instead.
+- Media a page keeps out of the document, in a shadow root or a detached `Audio` object, can't be seen.
 
 ### Snap apps, including Spotify
 

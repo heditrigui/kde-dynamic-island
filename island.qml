@@ -74,6 +74,10 @@ Window {
         return /brave|chrom|firefox|edge|vivaldi|opera|browser/i.test((candidate.desktopEntry || "") + " " + (candidate.identity || ""));
     }
 
+    function isTabPlayer(candidate) {
+        return candidate.identity === "Browser tab"; // from tab_media_host.py
+    }
+
     function sameTrack(a, b) {
         const left = a.toLowerCase(), right = b.toLowerCase();
         return left.includes(right) || right.includes(left);
@@ -83,17 +87,22 @@ Window {
     // background tab counts as playing, so rank the players here instead: playing
     // beats paused, and a music app beats a browser. Ties keep the current player.
     function pickPlayer() {
-        const found = [];
+        const rows = [];
         for (let i = 0; i < playerRows.count; i++) {
             const row = playerRows.objectAt(i);
-            if (row && row.container && !row.multiplexer && row.trackName !== "" && found.indexOf(row.container) < 0)
-                found.push(row.container);
+            if (row && row.container && !row.multiplexer && row.trackName !== "" && rows.indexOf(row.container) < 0)
+                rows.push(row.container);
         }
-        // A hidden player showing the same track as its browser's integration
-        // player is the same tab seen twice.
-        const integrated = found.filter(candidate => candidate.kdePid > 0);
+        // One tab can show up three times. Keep the integration player, which can
+        // skip tracks, then the extension's tab player, then the browser's own.
+        const integrated = rows.filter(candidate => candidate.kdePid > 0);
+        const tabs = rows.filter(isTabPlayer).filter(tab => !integrated.some(p => sameTrack(p.track, tab.track)));
+        const shownTabs = integrated.concat(tabs);
+        const others = rows.filter(candidate => candidate.kdePid <= 0 && !isTabPlayer(candidate)
+                                   && !(isBrowser(candidate) && shownTabs.some(p => sameTrack(p.track, candidate.track))));
+        const found = integrated.concat(tabs, others);
         for (const hidden of Object.values(hiddenPlayers))
-            if (hidden.track !== "" && !integrated.some(p => p.kdePid === hidden.pid && sameTrack(p.track, hidden.track)))
+            if (hidden.track !== "" && !shownTabs.some(p => sameTrack(p.track, hidden.track)))
                 found.push(hidden);
 
         // Existing players keep their place so a dot doesn't move under the cursor.
@@ -387,6 +396,7 @@ Window {
                         width: parent.width
                         elide: Text.ElideRight
                         text: root.track
+                        textFormat: Text.PlainText
                         color: "#ffffff"
                         font.pixelSize: 15
                         font.weight: Font.DemiBold
@@ -404,6 +414,7 @@ Window {
                             width: parent.width - mediaEq.width - parent.spacing
                             elide: Text.ElideRight
                             text: root.artist
+                            textFormat: Text.PlainText
                             color: "#a0ffffff"
                             font.pixelSize: 12
                         }

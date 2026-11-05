@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Dynamic Island Tab Media",
+  "version": "1.0",
+  "description": "Shows each browser tab's audio and video in the KDE Dynamic Island.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsaGJ/g/PfFlRJEB2cSvxP+0DLIdASPATdZ6u8+iXKxlhCP5iFSi33J/sySO5v5fDYEZj90mOnK5c+27oYRRkX1PJD/OxeVzj1yd2oiiBWnR+ucuQI+dkghkOo7T4JhCK6H+WoD9vAkHsgAomMVwvR1vPyHqoHXuDGecr18tpN5nIDpDbOP93HSgKApsyzmRLC7/9QKCgdyBy6baYesQzvPU7UgIIwAVvvcfUvZzBStUUen4qq0WG+2QdYUCQGBeuxD42S3vyUJ0Gd6kFLS+lCcptUlKc2Pxjlq7AMagGe7SD0sMVirYtIhZVRPUG5WGWcgye/nFBN1eF5kIRKAtFXQIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}
