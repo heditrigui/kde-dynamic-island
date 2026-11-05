@@ -3,6 +3,7 @@
 //
 // Hidden until the cursor touches the top edge of the screen.
 // Left click to pin open · right click to quit.
+import QtQml.Models
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Shapes
@@ -46,7 +47,53 @@ Window {
 
     // ---- Data ------------------------------------------------------------
     Mpris.Mpris2Model { id: mpris }
-    readonly property var player: mpris.currentPlayer
+    Instantiator {
+        id: playerRows
+        model: mpris
+        onObjectAdded: Qt.callLater(root.pickPlayer)
+        onObjectRemoved: Qt.callLater(root.pickPlayer)
+        delegate: QtObject {
+            required property var model
+            readonly property var container: model.container
+            readonly property bool multiplexer: model.isMultiplexer
+            readonly property int status: container ? container.playbackStatus : 0
+            readonly property string trackName: container ? (container.track || "") : ""
+            onStatusChanged: Qt.callLater(root.pickPlayer)
+            onTrackNameChanged: Qt.callLater(root.pickPlayer)
+        }
+    }
+
+    property var player: null
+
+    function isBrowser(candidate) {
+        return /brave|chrom|firefox|edge|vivaldi|opera|browser/i.test((candidate.desktopEntry || "") + " " + (candidate.identity || ""));
+    }
+
+    // Plasma's automatic pick can stay on a browser, where a hover preview or a
+    // background tab counts as playing, so rank the players here instead: playing
+    // beats paused, and a music app beats a browser. Ties keep the current player.
+    function pickPlayer() {
+        const players = [];
+        for (let i = 0; i < playerRows.count; i++) {
+            const row = playerRows.objectAt(i);
+            if (row && row.container && !row.multiplexer && row.trackName !== "" && players.indexOf(row.container) < 0)
+                players.push(row.container);
+        }
+        const rank = candidate => {
+            const status = candidate.playbackStatus;
+            const state = status === Mpris.PlaybackStatus.Playing ? 2 : status === Mpris.PlaybackStatus.Paused ? 1 : 0;
+            return state * 2 + (isBrowser(candidate) ? 0 : 1);
+        };
+        let next = players.indexOf(player) >= 0 ? player : null;
+        for (const candidate of players)
+            if (!next || rank(candidate) > rank(next))
+                next = candidate;
+        if (next !== player) {
+            player = next;
+            console.log("Following player:", next ? next.identity : "none");
+        }
+    }
+
     readonly property bool hasMedia: !!player && (player.track || "") !== ""
     readonly property bool playing: hasMedia && player.playbackStatus === Mpris.PlaybackStatus.Playing
     readonly property string track: hasMedia ? player.track : ""
