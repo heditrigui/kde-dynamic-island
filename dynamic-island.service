@@ -5,8 +5,12 @@ After=graphical-session.target
 
 [Service]
 ExecStart=/usr/bin/qml6 --apptype gui %h/.local/share/dynamic-island/island.qml
-Restart=on-failure
+# The surface closes when screens turn off, which exits cleanly, so restart on
+# any exit except a deliberate quit from the island's right-click.
+Restart=always
 RestartSec=3
+SuccessExitStatus=42
+RestartPreventExitStatus=42
 
 [Install]
 WantedBy=graphical-session.target

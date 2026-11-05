@@ -1,0 +1,12 @@
+[Unit]
+Description=Tray icon for Dynamic Island
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 -I %h/.local/share/dynamic-island/tray.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

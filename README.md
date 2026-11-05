@@ -9,7 +9,8 @@ A floating, Dynamic Island-style panel for KDE Plasma 6 on Wayland. It stays hid
 - Media info from any MPRIS player: album art, title, artist, seekable progress, previous/play/next
 - CPU usage and frequency, RAM usage, and CPU temperature
 - Colours taken from the album art, turning amber and then red when values get high
-- Written in plain QML using modules already on most Plasma systems, with nothing to compile
+- A tray icon to run or quit it
+- Written in plain QML and Python using modules already on most Plasma systems, with nothing to compile
 
 ## Requirements
 
@@ -17,6 +18,7 @@ A floating, Dynamic Island-style panel for KDE Plasma 6 on Wayland. It stays hid
 - The `qml6` runtime with the QtQuick Shapes and Effects modules
 - The KDE modules for layer-shell (`layer-shell-qt`), Kirigami and `libksysguard` sensors
 - `ksystemstats`, which provides the sensor readings
+- Python 3 with `dbus-python` and PyGObject, for the tray icon
 
 Developed and tested only on KDE neon 24.04 with Plasma 6.8 and Qt 6.11. Package names vary between distributions.
 
@@ -28,7 +30,7 @@ cd kde-dynamic-island
 ./install.sh
 ```
 
-This copies the files into your home folder and enables a systemd user service that starts with your desktop session. It doesn't need root.
+This copies the files into your home folder and enables two systemd user services, the island and its tray icon, which start with your desktop session. It doesn't need root.
 
 To remove it:
 
@@ -44,6 +46,8 @@ To remove it:
 | Move the cursor away | Hides it |
 | Left click | Pins it open or unpins it |
 | Right click | Quits until you start it again or next log in |
+| Left click the tray icon | Runs or quits it |
+| Right click the tray icon | Opens the Run, Quit and Restart menu |
 
 ```bash
 systemctl --user status dynamic-island

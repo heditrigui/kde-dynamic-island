@@ -187,7 +187,7 @@ Window {
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onTapped: (point, button) => {
                 if (button === Qt.RightButton)
-                    Qt.quit();
+                    Qt.exit(42); // the service treats 42 as a deliberate quit
                 else
                     root.pinned = !root.pinned;
             }
